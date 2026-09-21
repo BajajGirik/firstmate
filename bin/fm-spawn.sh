@@ -2485,7 +2485,7 @@ case "$LAUNCH" in
 esac
 
 json_escape() {
-  local rest=$1 out= chunk ch
+  local rest=$1 out='' chunk ch
   while [ -n "$rest" ]; do
     chunk=${rest%%[\\\"$'\n'$'\t'$'\r'$'\001'-$'\037']*}
     if [ "$chunk" = "$rest" ]; then
@@ -2498,7 +2498,7 @@ json_escape() {
     # A C0 character without a JSON escape has no textual meaning here and is
     # dropped; the four that do have one are preserved in every position.
     case $ch in
-    \\) out=$out'\\' ;;
+    \\) out=$out\\\\ ;;
     \") out=$out'\"' ;;
     $'\n') out=$out'\n' ;;
     $'\t') out=$out'\t' ;;
