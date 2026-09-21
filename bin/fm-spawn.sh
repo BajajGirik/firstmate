@@ -2344,12 +2344,15 @@ model_flag_for_harness() {
   esac
 }
 
+# Built with the shared json_escape helper rather than jq: an OpenCode spawn
+# otherwise gains an undocumented hard dependency that firstmate's per-harness
+# toolchain does not declare.
 opencode_config_content() {
-  local model=$1
+  local model=$1 permissions='"permissions":[{"action":"*","resource":"*","effect":"allow"}]'
   if [ -n "$model" ] && [ "$model" != default ]; then
-    jq -cn --arg model "$model" '{permissions:[{action:"*",resource:"*",effect:"allow"}],model:$model}'
+    printf '{%s,"model":"%s"}' "$permissions" "$(json_escape "$model")"
   else
-    jq -cn '{permissions:[{action:"*",resource:"*",effect:"allow"}]}'
+    printf '{%s}' "$permissions"
   fi
 }
 

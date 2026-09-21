@@ -52,25 +52,6 @@ function waitForArmReady(armChild) {
   });
 }
 
-function runProcess(command, args, options = {}) {
-  return new Promise((resolve) => {
-    const proc = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      ...options,
-    });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    proc.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    proc.on("error", (error) => resolve({ code: 127, stdout, stderr: String(error?.message ?? error) }));
-    proc.on("close", (code, signal) => resolve({ code: signal ? 128 : code, signal, stdout, stderr }));
-  });
-}
-
 function effectivePaths(root) {
   const fmRoot = process.env.FM_ROOT_OVERRIDE || root;
   const fmHome = process.env.FM_HOME || process.env.FM_ROOT_OVERRIDE || fmRoot;
@@ -109,7 +90,13 @@ function shouldArm(paths) {
   }
 }
 
-async function sessionOwnsLock(paths) {
+function parentPid(pid) {
+  const result = spawnSync("ps", ["-o", "ppid=", "-p", pid], { encoding: "utf8" });
+  if (result.status !== 0) return null;
+  return String(result.stdout || "").trim();
+}
+
+function sessionOwnsLock(paths) {
   let lockPid = "";
   try {
     lockPid = readFileSync(`${paths.state}/.lock`, "utf8").trim();
@@ -120,9 +107,10 @@ async function sessionOwnsLock(paths) {
   let pid = String(process.pid);
   for (let i = 0; i < 8; i += 1) {
     if (pid === lockPid) return true;
-    const result = await runProcess("ps", ["-o", "ppid=", "-p", pid]);
-    if (result.code !== 0) return false;
-    pid = result.stdout.trim();
+    // Synchronous for the same reason as revParse above: the terminal
+    // session.execution.* event tears down the turn's process group, and an
+    // async child SIGTERMed mid-read would decline to arm with no retry.
+    pid = parentPid(pid);
     if (!pid || pid === "1") return false;
   }
   return false;
@@ -308,7 +296,7 @@ async function restoreAfterActionableClose(paths, sessionID, ctx, predecessorArm
 async function scheduleRetry(paths, sessionID, ctx, reason, predecessorArmPid, generation) {
   if (!generationIsActive(generation)) return;
   if (child || retryTimer) return;
-  if (!(await sessionOwnsLock(paths))) {
+  if (!sessionOwnsLock(paths)) {
     if (!generationIsActive(generation)) return;
     setArmStatus("failed");
     surfaceFailure(paths, ctx, sessionID, `watcher: FAILED - OpenCode cannot restore continuity because this session no longer owns the lock\n${reason}`);
@@ -454,7 +442,7 @@ async function beginArm(paths, sessionID, ctx, predecessorArmPid, generation) {
   if (!sessionID) return { status: "skipped", armChild: null };
   if (!isPrimaryRoot(paths.root, paths.home)) return { status: "not-primary", armChild: null };
   if (!generationIsActive(generation)) return { status: "disposed", armChild: null };
-  if (!(await sessionOwnsLock(paths))) return { status: "read-only", armChild: null };
+  if (!sessionOwnsLock(paths)) return { status: "read-only", armChild: null };
   if (!generationIsActive(generation)) return { status: "disposed", armChild: null };
   if (child) return { status: "existing", armChild: child };
   if (retryTimer) return { status: "retrying", armChild: null };

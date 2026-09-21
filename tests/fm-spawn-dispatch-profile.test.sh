@@ -658,6 +658,52 @@ test_opencode_threads_model_and_ignores_effort_axis() {
   assert_not_contains "$launch" "--thinking" "opencode launch must not pass pi thinking flag"
   pass "opencode receives its model through config and omits unsupported flags"
 }
+# An OpenCode spawn must not acquire jq as an undeclared hard dependency:
+# fm_backend_required_tools (bin/fm-backend.sh) owns the per-backend tool delta
+# and docs/configuration.md lists jq only for the JSON-emitting backends, so a
+# host without jq must still launch an OpenCode worker with a valid config.
+test_opencode_config_needs_no_jq_on_path() {
+  local rec id case_name model nojq launch config_log args_log
+
+  # A jq that refuses instead of removing /usr/bin from PATH: the rest of the
+  # spawn's ordinary toolchain stays reachable, and any jq call fails the spawn.
+  nojq="$TMP_ROOT/opencode-nojq-bin"
+  mkdir -p "$nojq"
+  cat > "$nojq/jq" <<'SH'
+#!/usr/bin/env bash
+echo "jq: command not found" >&2
+exit 127
+SH
+  chmod +x "$nojq/jq"
+
+  for model in default anthropic/claude-sonnet-4-5 'vendor/mo"del\x'; do
+    case_name="profile-opencode-nojq-$RANDOM$RANDOM"
+    id="$case_name-task"
+    rec=$(make_spawn_case "$case_name" opencode "$id")
+    read_case_record "$rec"
+    PATH="$nojq:$PATH" run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+      --model "$model" >/dev/null
+    expect_code 0 "$?" "opencode spawn must not require jq (model $model)"
+    launch=$(cat "$LAUNCH_LOG")
+    config_log="$CASE_DIR/nojq-config.json"
+    args_log="$CASE_DIR/nojq-args"
+    FM_TEST_OPENCODE_CONFIG_LOG="$config_log" FM_TEST_OPENCODE_ARGS_LOG="$args_log" \
+      PATH="$FAKEBIN_DIR:$PATH" bash -c "$launch"
+    expect_code 0 "$?" "generated opencode launch should execute (model $model)"
+    if [ "$model" = default ]; then
+      jq -e '.permissions == [{"action":"*","resource":"*","effect":"allow"}] and has("model") == false' \
+        "$config_log" >/dev/null \
+        || fail "default-model opencode config must carry permissions and no model key"
+    else
+      # A model name needing JSON escaping must survive as one string value.
+      jq -e --arg model "$model" \
+        '.model == $model and .permissions == [{"action":"*","resource":"*","effect":"allow"}]' \
+        "$config_log" >/dev/null \
+        || fail "opencode config built without jq lost or mangled the model (model $model)"
+    fi
+  done
+  pass "opencode builds its launch configuration without jq on PATH"
+}
 
 test_native_effort_validator_keeps_axes_separate() {
   local harness
@@ -1523,6 +1569,7 @@ test_cursor_threads_model_workspace_and_omits_effort_axis
 test_cursor_refuses_model_absent_from_live_catalog
 test_cursor_failed_catalog_probe_does_not_block_spawn
 test_opencode_threads_model_and_ignores_effort_axis
+test_opencode_config_needs_no_jq_on_path
 test_native_effort_validator_keeps_axes_separate
 test_native_pi_ultra_is_explicit_and_model_scoped
 test_batch_preserves_native_ultra

@@ -3362,6 +3362,70 @@ EOF
   [ "$result" = "armed" ] || fail "a signal-killed async git must not stop the watcher arming: $result"
   pass "OpenCode watcher plugin arms when an async git child is signal-killed"
 }
+# The same teardown hazard on the sibling read: sessionOwnsLock walks process
+# ancestry with ps, which under --standalone always runs at least once because
+# the lock records the owning session's ANCHOR pid, not the plugin's. An async
+# ps SIGTERMed mid-read resolves non-zero, the plugin declines with "read-only",
+# and no retry is scheduled - on an interrupted turn the turn-end guard is not a
+# backstop, so supervision silently stays off.
+test_opencode_primary_watch_plugin_arms_when_async_ps_is_signal_killed() {
+  local plugin repo home log shim result
+  plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
+  repo="$TMP_ROOT/opencode-ps-sigterm-root"
+  home="$TMP_ROOT/opencode-ps-sigterm-home"
+  log="$TMP_ROOT/opencode-ps-sigterm.log"
+  shim="$TMP_ROOT/opencode-ps-sigterm-bin"
+  rm -rf "$repo" "$home" "$log" "$shim"
+  mkdir -p "$repo/bin" "$home/state" "$home/config" "$shim"
+  git init -q "$repo"
+  : > "$repo/AGENTS.md"
+  : > "$home/state/task.meta"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'armed\n' >> "${FM_ARM_LOG:?}"
+printf 'watcher: healthy pid=1 (beacon 0s)\n'
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  # Mirrors the git shim above: an asynchronously spawned child gets /dev/null
+  # on stdin while a synchronous one inherits the parent's, so this kills only
+  # the async ancestry read and lets the synchronous one answer.
+  cat > "$shim/ps" <<'SH'
+#!/usr/bin/env bash
+if [ /dev/fd/0 -ef /dev/null ] && [ ! -f "$FM_SIGTERM_SHIM_STATE" ]; then
+  : > "$FM_SIGTERM_SHIM_STATE"
+  kill -TERM $$
+  sleep 5
+fi
+exec /bin/ps "$@"
+SH
+  chmod +x "$shim/ps"
+  result=$(PATH="$shim:$PATH" FM_SIGTERM_SHIM_STATE="$shim/.killed" PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" node <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const ctx = { location: { project: { directory: process.env.WORKTREE } }, session: { prompt: async () => {} } };
+const handleEvent = await mod.createWatchArmHandler(ctx);
+// The owning session's anchor is this process's PARENT, so ownership can only
+// be established by walking ancestry - exactly the production --standalone
+// shape the existing same-pid cases short-circuit past.
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.ppid}\n`);
+
+const armCount = () => {
+  if (!existsSync(process.env.FM_ARM_LOG)) return 0;
+  return readFileSync(process.env.FM_ARM_LOG, "utf8").split("\n").filter(Boolean).length;
+};
+
+await handleEvent({ type: "session.execution.interrupted", data: { sessionID: "session-test", reason: "user" } });
+for (let i = 0; i < 250 && armCount() === 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+}
+console.log(armCount() > 0 ? "armed" : "not-armed");
+EOF
+)
+  [ "$result" = "armed" ] || fail "a signal-killed async ps must not strand lock verification: $result"
+  pass "OpenCode watcher plugin arms when an async ps child is signal-killed"
+}
 
 test_opencode_primary_watch_plugin_sources_effective_config() {
   local plugin repo home log out status
@@ -4453,6 +4517,7 @@ test_opencode_primary_watch_plugin_uses_effective_state_home
 test_opencode_primary_watch_plugin_sources_effective_config
 test_opencode_primary_watch_plugin_arms_on_interrupted_turn
 test_opencode_primary_watch_plugin_arms_when_async_git_is_signal_killed
+test_opencode_primary_watch_plugin_arms_when_async_ps_is_signal_killed
 test_opencode_primary_watch_plugin_requires_session_lock
 test_opencode_watch_arm_coordinator_respects_primary_scope
 test_opencode_primary_watch_plugin_rearms_after_wake
