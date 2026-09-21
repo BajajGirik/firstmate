@@ -2485,20 +2485,27 @@ case "$LAUNCH" in
 esac
 
 json_escape() {
-  printf '%s' "$1" | awk '
-    BEGIN { ORS = "" }
-    {
-      if (NR > 1) print "\\n"
-      line = $0
-      gsub(/\\/, "\\\\", line)
-      gsub(/"/, "\\\"", line)
-      gsub(/\t/, "\\t", line)
-      gsub(/\r/, "\\r", line)
-      # Any remaining C0 control character has no textual meaning here and
-      # would make the emitted JSON string unparseable.
-      gsub(/[\001-\010\013\014\016-\037]/, "", line)
-      print line
-    }'
+  local rest=$1 out= chunk ch
+  while [ -n "$rest" ]; do
+    chunk=${rest%%[\\\"$'\n'$'\t'$'\r'$'\001'-$'\037']*}
+    if [ "$chunk" = "$rest" ]; then
+      out=$out$rest
+      break
+    fi
+    out=$out$chunk
+    ch=${rest:${#chunk}:1}
+    rest=${rest:$((${#chunk} + 1))}
+    # A C0 character without a JSON escape has no textual meaning here and is
+    # dropped; the four that do have one are preserved in every position.
+    case $ch in
+    \\) out=$out'\\' ;;
+    \") out=$out'\"' ;;
+    $'\n') out=$out'\n' ;;
+    $'\t') out=$out'\t' ;;
+    $'\r') out=$out'\r' ;;
+    esac
+  done
+  printf '%s' "$out"
 }
 
 # rovo confines every file-tool operation (open_files, create_file, grep, ...)

@@ -710,7 +710,10 @@ SH
 # permissions grant down with it.
 test_opencode_config_survives_control_characters_in_model() {
   local rec id case_name model launch config_log args_log expected
-  for model in "$(printf 'vendor/a\nb')" "$(printf 'vendor/a\tb')" "$(printf 'vendor/a\001b')"; do
+  # $'...' rather than $(printf ...) because command substitution strips the
+  # trailing newline the trailing-position cases exist to exercise.
+  for model in $'vendor/a\nb' $'vendor/a\tb' $'vendor/a\001b' \
+    $'vendor/model\n' $'vendor/model\n\n' $'\nvendor/model' $'vendor/a\rb'; do
     case_name="profile-opencode-ctl-$RANDOM$RANDOM"
     id="$case_name-task"
     rec=$(make_spawn_case "$case_name" opencode "$id")
@@ -724,10 +727,10 @@ test_opencode_config_survives_control_characters_in_model() {
     FM_TEST_OPENCODE_CONFIG_LOG="$config_log" FM_TEST_OPENCODE_ARGS_LOG="$args_log" \
       PATH="$FAKEBIN_DIR:$PATH" bash -c "$launch"
     expect_code 0 "$?" "generated opencode launch should execute"
-    # C0 characters with a JSON escape survive; the rest are dropped, matching
-    # the shared escaping contract in bin/fm-branch-outcome.sh.
+    # A C0 character with a JSON escape survives byte-for-byte in every
+    # position, leading and trailing included; the rest are dropped.
     case "$model" in
-    *"$(printf '\001')"*) expected=vendor/ab ;;
+    *$'\001'*) expected=vendor/ab ;;
     *) expected=$model ;;
     esac
     jq -e --arg model "$expected" \
@@ -735,7 +738,7 @@ test_opencode_config_survives_control_characters_in_model() {
       "$config_log" >/dev/null \
       || fail "opencode config was not valid JSON carrying the model and permissions"
   done
-  pass "opencode launch configuration stays valid JSON for control-bearing models"
+  pass "opencode launch configuration preserves control characters in every position"
 }
 
 test_native_effort_validator_keeps_axes_separate() {
