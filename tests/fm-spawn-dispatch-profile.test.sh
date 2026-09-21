@@ -705,6 +705,39 @@ SH
   pass "opencode builds its launch configuration without jq on PATH"
 }
 
+# A --model value is taken verbatim from the operator, so a stray control
+# character must not make OPENCODE_CONFIG_CONTENT unparseable and take the
+# permissions grant down with it.
+test_opencode_config_survives_control_characters_in_model() {
+  local rec id case_name model launch config_log args_log expected
+  for model in "$(printf 'vendor/a\nb')" "$(printf 'vendor/a\tb')" "$(printf 'vendor/a\001b')"; do
+    case_name="profile-opencode-ctl-$RANDOM$RANDOM"
+    id="$case_name-task"
+    rec=$(make_spawn_case "$case_name" opencode "$id")
+    read_case_record "$rec"
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+      --model "$model" >/dev/null
+    expect_code 0 "$?" "opencode spawn should accept a control-bearing model"
+    launch=$(cat "$LAUNCH_LOG")
+    config_log="$CASE_DIR/ctl-config.json"
+    args_log="$CASE_DIR/ctl-args"
+    FM_TEST_OPENCODE_CONFIG_LOG="$config_log" FM_TEST_OPENCODE_ARGS_LOG="$args_log" \
+      PATH="$FAKEBIN_DIR:$PATH" bash -c "$launch"
+    expect_code 0 "$?" "generated opencode launch should execute"
+    # C0 characters with a JSON escape survive; the rest are dropped, matching
+    # the shared escaping contract in bin/fm-branch-outcome.sh.
+    case "$model" in
+    *"$(printf '\001')"*) expected=vendor/ab ;;
+    *) expected=$model ;;
+    esac
+    jq -e --arg model "$expected" \
+      '.model == $model and .permissions == [{"action":"*","resource":"*","effect":"allow"}]' \
+      "$config_log" >/dev/null \
+      || fail "opencode config was not valid JSON carrying the model and permissions"
+  done
+  pass "opencode launch configuration stays valid JSON for control-bearing models"
+}
+
 test_native_effort_validator_keeps_axes_separate() {
   local harness
   for harness in pi pi-signed; do
@@ -1570,6 +1603,7 @@ test_cursor_refuses_model_absent_from_live_catalog
 test_cursor_failed_catalog_probe_does_not_block_spawn
 test_opencode_threads_model_and_ignores_effort_axis
 test_opencode_config_needs_no_jq_on_path
+test_opencode_config_survives_control_characters_in_model
 test_native_effort_validator_keeps_axes_separate
 test_native_pi_ultra_is_explicit_and_model_scoped
 test_batch_preserves_native_ultra
