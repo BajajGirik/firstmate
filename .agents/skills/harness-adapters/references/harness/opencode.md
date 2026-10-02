@@ -14,7 +14,7 @@ Earlier interactive behavior was verified across V1 versions 1.15.7 through 1.18
 | Resume | Relaunch with `--continue` to resume the most recent session for the current directory, then send the next instruction after the TUI is ready because `--prompt` does not auto-submit alongside `--continue`. |
 | Launch flag | `--standalone`, required for every Firstmate launch on 2.x: the default launch attaches to the shared `opencode serve --service` daemon, which hosts plugins with its own environment and PID and ignores `OPENCODE_CONFIG_CONTENT` after it starts. |
 | Model selection | The `model` key in the per-launch `OPENCODE_CONFIG_CONTENT`; the full TUI command has no `--model` flag. |
-| Effort flag | None; the per-launch `agents.build.model` reference carries the V2 variant after `#`, preserving the supported provider-effort mapping in `opencode_config_content()` in `../../../bin/fm-spawn.sh`. An explicit model variant is preserved. |
+| Effort flag | None; the per-launch `agents.build.model` reference carries the V2 variant after `#`, preserving the supported provider-effort mapping in `opencode_config_content()` in `../../../bin/fm-spawn.sh`. |
 | Model discovery | Run `opencode models [provider]` to list available provider/model identifiers. |
 | Trust dialog | None. |
 | Marker | None; OpenCode publishes no identity marker, so `../../../bin/fm-harness.sh` identifies it from process ancestry. |
