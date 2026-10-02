@@ -1109,6 +1109,55 @@ EOF
   pass ".opencode primary plugin: failed execution ends a turn, mid-turn steps do not"
 }
 
+test_opencode_plugin_rearms_after_interrupted_followup() {
+  local plugin worktree_dir out status
+  plugin="$ROOT/.opencode/plugins/fm-primary-turnend-guard.js"
+  worktree_dir="$TMP_ROOT/opencode-interrupted-followup"
+  mkdir -p "$worktree_dir/bin"
+  cat > "$worktree_dir/bin/fm-turnend-guard.sh" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'guard-fired\n' >&2
+exit 2
+EOF
+  chmod +x "$worktree_dir/bin/fm-turnend-guard.sh"
+  out=$(NODE_NO_WARNINGS=1 PLUGIN="$plugin" WORKTREE="$worktree_dir" node 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const prompts = [];
+const ctx = {
+  location: { project: { directory: process.env.WORKTREE } },
+  session: { prompt: async (request) => { prompts.push(request.text); } },
+};
+const handleEvent = await mod.createTurnendGuardHandler(ctx);
+const sessionID = "session-interrupted";
+
+await handleEvent({ type: "session.execution.succeeded", data: { sessionID } });
+if (prompts.length !== 1) {
+  console.error(`first turn end must raise the guard: ${JSON.stringify(prompts)}`);
+  process.exit(1);
+}
+
+await handleEvent({ type: "session.execution.interrupted", data: { sessionID } });
+if (prompts.length !== 1) {
+  console.error(`an interrupted turn must not be guarded: ${JSON.stringify(prompts)}`);
+  process.exit(1);
+}
+
+await handleEvent({ type: "session.execution.succeeded", data: { sessionID } });
+if (prompts.length !== 2) {
+  console.error(`guard stayed silenced after an interrupted follow-up: ${JSON.stringify(prompts)}`);
+  process.exit(1);
+}
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "OpenCode plugin must re-arm the guard after an interrupted injected follow-up"
+  [ -z "$out" ] || fail "OpenCode interrupted-followup test printed output: $out"
+  pass ".opencode primary plugin: interrupted follow-up stays unguarded and re-arms the next turn"
+}
+
 test_pi_extension_injects_once_per_logical_agent_run() {
   local repo home ext log out status
   repo="$TMP_ROOT/pi-logical-run-root"
@@ -2294,6 +2343,7 @@ test_codex_hook_uses_process_pwd_when_payload_cwd_is_outside_root
 test_codex_hook_ignores_nested_git_root_guard
 test_opencode_plugin_anchors_guard_to_worktree
 test_opencode_plugin_guards_failed_turn_boundary
+test_opencode_plugin_rearms_after_interrupted_followup
 test_pi_extension_injects_once_per_logical_agent_run
 test_pi_extension_retries_after_followup_delivery_failure
 test_hook_claude_mode_reblocks_stop_hook_active_when_unhealthy

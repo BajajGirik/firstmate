@@ -40,8 +40,12 @@ export async function createTurnendGuardHandler(ctx) {
   const skippedSessionIDs = new Set();
 
   return async (event) => {
+    const sessionID = event.data?.sessionID;
+    if (event.type === "session.execution.interrupted") {
+      if (sessionID) skippedSessionIDs.delete(sessionID);
+      return;
+    }
     if (event.type !== "session.execution.succeeded" && event.type !== "session.execution.failed") return;
-    const sessionID = event.data.sessionID;
     if (!sessionID) return;
 
     if (skippedSessionIDs.delete(sessionID)) {

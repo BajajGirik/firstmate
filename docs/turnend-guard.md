@@ -269,6 +269,7 @@ The registrations in detail:
 - Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard.
 - OpenCode V2 subscribes to `session.execution.succeeded` and `session.execution.failed` in `.opencode/plugins/fm-primary-turnend-guard.js`, lets the watcher coordinator act first, and calls `ctx.session.prompt` once when the guard returns 2.
   `session.execution.interrupted` is deliberately unguarded, matching the omp rule above that an interrupted turn is not a guarded boundary; the watcher-arm plugin still re-arms on it, so supervision recovers without compelling a continuation the operator just cancelled.
+  An interrupted turn does clear the session's one-shot skip marker, so cancelling an injected follow-up leaves the guard armed for the next genuine turn end rather than silencing it for the rest of the session.
 - Pi listens for `agent_settled` in `.pi/extensions/fm-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 - omp answers its blocking `session_stop` hook in `.omp/extensions/fm-primary-turnend-guard.ts`, passing the payload's own `stop_hook_active` to the shared guard.
   When the guard returns 2, it returns `{ continue: true, additionalContext }`, so the continuation is compelled rather than requested.

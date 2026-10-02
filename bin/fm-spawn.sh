@@ -2564,21 +2564,16 @@ opencode_config_content() {
   local model=$1 effort=${2:-default} agent_model permissions='"permissions":[{"action":"*","resource":"*","effect":"allow"}]'
   if [ -n "$model" ] && [ "$model" != default ]; then
     agent_model=$model
-    # Preserve an explicit variant; otherwise keep the established provider
-    # effort mapping, expressed as a native V2 agent model reference.
-    case "$model" in
-    *\#*) ;;
-    *)
-      case "${model%%/*}:$effort" in
-      anthropic:high | anthropic:max | openai:low | openai:medium | openai:high | openai:xhigh)
-        agent_model="$model#$effort"
-        ;;
-      esac
+    # The established provider effort mapping, expressed as a native V2 agent
+    # model reference.
+    case "${model%%/*}:$effort" in
+    anthropic:high | anthropic:max | openai:low | openai:medium | openai:high | openai:xhigh)
+      agent_model="$model#$effort"
       ;;
     esac
-    if [ "$agent_model" != "$model" ] || [[ "$model" = *\#* ]]; then
+    if [ "$agent_model" != "$model" ]; then
       printf '{%s,"model":"%s","agents":{"build":{"model":"%s"}}}' \
-        "$permissions" "$(json_escape "${model%%#*}")" "$(json_escape "$agent_model")"
+        "$permissions" "$(json_escape "$model")" "$(json_escape "$agent_model")"
     else
       printf '{%s,"model":"%s"}' "$permissions" "$(json_escape "$model")"
     fi
