@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Opt-in credentialed OpenCode continuity regression on an isolated project and
-# FM_HOME. Existing OpenCode credentials stay in their managed store.
+# Native token-free OpenCode integration plus an opt-in credentialed TUI
+# continuity regression. Both use an isolated project and FM_HOME.
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+# Token-free native API proof uses a loopback protocol fixture, not a model or
+# the operator's managed server. The credentialed TUI proof below stays opt-in.
+if [ "${FM_OPENCODE_V2_OFFLINE_LIVE:-1}" = 1 ] && [ "${FM_OPENCODE_LIVE_E2E:-0}" != 1 ]; then
+  fm_live_gate default-on FM_OPENCODE_V2_OFFLINE_LIVE opencode python3 git tmux
+  python3 "$(dirname "${BASH_SOURCE[0]}")/opencode-v2-live-fixture.py"
+  exit $?
+fi
 
 fm_live_gate opt-in FM_OPENCODE_LIVE_E2E opencode tmux sqlite3
 
